@@ -1,22 +1,20 @@
 [app]
 
-# اسم التطبيق وحزمة الملف
 title = RI
 package.name = ri
 package.domain = org.ri.downloader
 
-# مسار ملفات المشروع وأيقونة التطبيق الخارجية
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,webp,gif,mp4,mkv,webm,mov,kv,atlas,json,md,txt
 icon.filename = %(source.dir)s/icon.jpg
 
-# إصدار التطبيق
 version = 0.2.0
 
-# المكتبات المطلوبة داخل التطبيق
 requirements = python3,kivy,requests,certifi,urllib3,idna,charset-normalizer,yt-dlp
 
-# توجيه الشاشة وصلاحيات أندرويد
+# إصدار مستقر من python-for-android يبني Python 3.11 (بدل master الذي يبني 3.14 ويكسر pip)
+p4a.branch = v2024.01.21
+
 orientation = portrait
 fullscreen = 0
 android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,READ_MEDIA_VIDEO
