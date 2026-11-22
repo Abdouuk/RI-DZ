@@ -56,16 +56,15 @@ jobs:
       - name: Prepare Android SDK
         run: |
           SDK=/usr/local/lib/android/sdk
-          echo "--- SDK contents ---"
-          ls "$SDK"
-          ls "$SDK/cmdline-tools" || true
           # buildozer يبحث عن sdkmanager في المسار القديم tools/bin
           if [ ! -e "$SDK/tools" ]; then
             sudo ln -sfn "$SDK/cmdline-tools/latest" "$SDK/tools"
           fi
           yes | sudo "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          echo "--- installed platforms ---"
-          ls "$SDK/platforms" || true
+          # p4a يبحث عن SDK داخل مجلد buildozer، فنوجهه إلى SDK الجاهز
+          mkdir -p "$HOME/.buildozer/android/platform"
+          ln -sfn "$SDK" "$HOME/.buildozer/android/platform/android-sdk"
+          ls "$HOME/.buildozer/android/platform/android-sdk/build-tools" || true
 
       - name: Build Android APK
         env:
