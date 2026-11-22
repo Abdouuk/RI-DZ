@@ -12,7 +12,7 @@ version = 0.2.0
 
 requirements = python3,kivy,requests,certifi,urllib3,idna,charset-normalizer,yt-dlp
 
-# إصدار مستقر من python-for-android يبني Python 3.11 (بدل master الذي يبني 3.14 ويكسر pip)
+# إصدار مستقر من python-for-android يبني Python 3.11
 p4a.branch = v2024.01.21
 
 orientation = portrait
@@ -22,6 +22,9 @@ android.api = 33
 android.minapi = 21
 android.ndk = 25b
 android.accept_sdk_license = True
+
+# استخدام Android SDK الجاهز في بيئة GitHub بدلاً من تحميل SDK فارغ
+android.sdk_path = /usr/local/lib/android/sdk
 
 [buildozer]
 
