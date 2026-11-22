@@ -56,20 +56,20 @@ jobs:
       - name: Prepare Android SDK
         run: |
           SDK=/usr/local/lib/android/sdk
-          # buildozer يبحث عن sdkmanager في المسار القديم tools/bin
           if [ ! -e "$SDK/tools" ]; then
             sudo ln -sfn "$SDK/cmdline-tools/latest" "$SDK/tools"
           fi
           yes | sudo "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          # p4a يبحث عن SDK داخل مجلد buildozer، فنوجهه إلى SDK الجاهز
           mkdir -p "$HOME/.buildozer/android/platform"
           ln -sfn "$SDK" "$HOME/.buildozer/android/platform/android-sdk"
+          mkdir -p "$RUNNER_TEMP/android-user"
           ls "$HOME/.buildozer/android/platform/android-sdk/build-tools" || true
 
       - name: Build Android APK
         env:
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
           ACLOCAL_PATH: /usr/share/aclocal
+          ANDROID_USER_HOME: ${{ runner.temp }}/android-user
         run: |
           rm -rf .buildozer/android/platform/build-*/build/other_builds/libffi || true
           set +e
