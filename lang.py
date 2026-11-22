@@ -1,0 +1,83 @@
+TRANSLATIONS = {
+    "ar": {
+        "app_name": "RI",
+        "subtitle": "تحميل الفيديوهات والوسائط بسهولة",
+        "url_hint": "الصق رابط الفيديو أو الصورة هنا (رابط في كل سطر للتحميل المتعدد)...",
+        "download_btn": "تحميل الآن",
+        "cancel_btn": "إلغاء",
+        "empty_url": "يرجى إدخال رابط أولاً.",
+        "fetching_info": "جاري جلب معلومات الوسائط...",
+        "downloading": "جاري التحميل...",
+        "success": "تم التحميل بنجاح!",
+        "success_many": "تم تحميل {n} ملفات بنجاح!",
+        "cancelled": "تم إلغاء التحميل.",
+        "error_prefix": "حدث خطأ: {error}",
+        "saved_to": "تم الحفظ في: {path}",
+        "fmt_av": "فيديو + صوت",
+        "fmt_v": "بدون صوت",
+        "fmt_a": "صوت فقط",
+        "quality": "الجودة",
+        "nav_home": "الرئيسية",
+        "nav_library": "المكتبة",
+        "nav_settings": "الإعدادات",
+        "settings_title": "الإعدادات",
+        "bg_section": "خلفية التطبيق",
+        "pick_image": "اختيار صورة من المعرض",
+        "pick_video": "اختيار فيديو متحرك",
+        "reset_bg": "العودة للخلفية الافتراضية",
+        "bg_set": "تم تعيين الخلفية بنجاح.",
+        "bg_reset": "تمت استعادة الخلفية الافتراضية.",
+        "back_home": "العودة للرئيسية",
+        "library_title": "مكتبتي",
+        "library_count": "عدد الملفات: {n}",
+        "library_empty": "لم تحمّل أي ملف بعد.",
+        "delete": "حذف",
+        "developer_credit": "Telegram: @xr4_m",
+    },
+    "en": {
+        "app_name": "RI",
+        "subtitle": "Download videos and media easily",
+        "url_hint": "Paste video or image link here (one link per line for batch)...",
+        "download_btn": "Download Now",
+        "cancel_btn": "Cancel",
+        "empty_url": "Please enter a link first.",
+        "fetching_info": "Fetching media info...",
+        "downloading": "Downloading...",
+        "success": "Downloaded successfully!",
+        "success_many": "Downloaded {n} files successfully!",
+        "cancelled": "Download cancelled.",
+        "error_prefix": "Error: {error}",
+        "saved_to": "Saved to: {path}",
+        "fmt_av": "Video + audio",
+        "fmt_v": "No audio",
+        "fmt_a": "Audio only",
+        "quality": "Quality",
+        "nav_home": "Home",
+        "nav_library": "Library",
+        "nav_settings": "Settings",
+        "settings_title": "Settings",
+        "bg_section": "App Background",
+        "pick_image": "Choose Image from Gallery",
+        "pick_video": "Choose Animated Video",
+        "reset_bg": "Reset to Default Background",
+        "bg_set": "Background updated.",
+        "bg_reset": "Default background restored.",
+        "back_home": "Back to Home",
+        "library_title": "My library",
+        "library_count": "Files: {n}",
+        "library_empty": "No files downloaded yet.",
+        "delete": "Delete",
+        "developer_credit": "Telegram: @xr4_m",
+    },
+}
+
+
+def get_text(key: str, lang: str = "ar", **kwargs) -> str:
+    lang_code = lang if lang in TRANSLATIONS else "ar"
+    template = TRANSLATIONS[lang_code].get(key) or TRANSLATIONS["ar"].get(key) or key
+    if kwargs:
+        try:
+            return template.format(**kwargs)
+        except Exception:
+            return template
+    return template
