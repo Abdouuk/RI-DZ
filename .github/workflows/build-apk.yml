@@ -5,10 +5,20 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ri-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
+      ACLOCAL_PATH: /usr/share/aclocal
 
     steps:
       - name: Checkout repository
@@ -67,8 +77,6 @@ jobs:
 
       - name: Build Android APK
         env:
-          JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
-          ACLOCAL_PATH: /usr/share/aclocal
           ANDROID_USER_HOME: ${{ runner.temp }}/android-user
         run: |
           rm -rf .buildozer/android/platform/build-*/build/other_builds/libffi || true
