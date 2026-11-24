@@ -1,470 +1,435 @@
 import json
 import os
 import threading
+from functools import partial
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.window import Window
+from kivy.core.text import LabelBase
 from kivy.graphics import Color, Rectangle
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
-from kivy.uix.filechooser import FileChooserIconView
-from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.gridlayout import GridLayout
-from kivy.uix.image import Image as KivyImage
 from kivy.uix.label import Label
+from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
 from kivy.uix.progressbar import ProgressBar
+from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
-from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
-from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
-from kivy.uix.togglebutton import ToggleButton
-from kivy.uix.video import Video
 
-try:
-    from android.permissions import request_permissions, Permission
-except ImportError:  # يعمل على الكمبيوتر بدون أندرويد
-    request_permissions = None
-    Permission = None
-
+from arabic import shape
 from lang import get_text
 from ri_engine import RIDownloaderEngine
 
-BG = (0.07, 0.075, 0.085, 1)
-PRIMARY = (0.16, 0.45, 0.88, 1)
-SURFACE = (0.15, 0.16, 0.19, 0.92)
-DARK_BTN = (0.18, 0.19, 0.22, 0.92)
-DANGER = (0.6, 0.18, 0.18, 1)
-TEXT = (0.96, 0.97, 0.98, 1)
-MUTED = (0.72, 0.75, 0.8, 1)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-KIND_CODES = ["av", "v", "a"]
-KIND_KEYS = ["fmt_av", "fmt_v", "fmt_a"]
-QUALITY_VALUES = ["360p", "720p", "1080p"]
+# الاسم الافتراضي لخط Kivy هو Roboto، فنسجّل الخط العربي باسمه ليصبح خط كل النصوص
+LabelBase.register(
+    name="Roboto",
+    fn_regular=os.path.join(BASE_DIR, "fonts", "Tajawal-Regular.ttf"),
+    fn_bold=os.path.join(BASE_DIR, "fonts", "Tajawal-Bold.ttf"),
+)
 
-
-class BaseScreen(Screen):
-    """شاشة فيها خلفية قابلة للتغيير وشريط تنقل سفلي."""
-
-    def __init__(self, app_ref, name, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.app_ref = app_ref
-        self.lang = app_ref.lang
-
-        root = FloatLayout()
-        self.bg_holder = FloatLayout(size_hint=(1, 1))
-        with self.bg_holder.canvas.before:
-            Color(*BG)
-            self.bg_rect = Rectangle(pos=self.bg_holder.pos, size=self.bg_holder.size)
-        self.bg_holder.bind(pos=self._sync_bg, size=self._sync_bg)
-
-        self.content = BoxLayout(
-            orientation="vertical",
-            padding=[dp(18), dp(16), dp(18), dp(12)],
-            spacing=dp(10),
-            size_hint=(1, 1),
-        )
-        root.add_widget(self.bg_holder)
-        root.add_widget(self.content)
-        self.add_widget(root)
-
-        self.nav_items = []
-        self.nav = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(6))
-        for scr, key in (("home", "nav_home"), ("library", "nav_library"), ("settings", "nav_settings")):
-            b = Button(background_normal="")
-            b.bind(on_press=lambda _b, s=scr: self.app_ref.go(s))
-            self.nav.add_widget(b)
-            self.nav_items.append((b, scr, key))
-        self.content.add_widget(self.nav)
-        self.refresh_nav()
-        self.apply_background(app_ref.bg_type, app_ref.bg_path)
-
-    def _sync_bg(self, inst, _value):
-        self.bg_rect.pos = inst.pos
-        self.bg_rect.size = inst.size
-
-    def apply_background(self, bg_type, bg_path):
-        self.bg_holder.clear_widgets()
-        if bg_type == "image" and bg_path and os.path.exists(bg_path):
-            self.bg_holder.add_widget(KivyImage(source=bg_path, allow_stretch=True, keep_ratio=False))
-        elif bg_type == "video" and bg_path and os.path.exists(bg_path):
-            try:
-                self.bg_holder.add_widget(Video(
-                    source=bg_path, state="play", options={"eos": "loop"},
-                    allow_stretch=True, keep_ratio=False,
-                ))
-            except Exception:
-                pass
-
-    def refresh_nav(self):
-        for b, scr, key in self.nav_items:
-            b.text = get_text(key, self.app_ref.lang)
-            b.background_color = PRIMARY if self.name == scr else DARK_BTN
-
-    def wrap_label(self, lbl):
-        lbl.bind(size=lambda l, s: setattr(l, "text_size", (l.width, None)))
-        return lbl
+ACCENT = "#6d4cff"
+BG_CHOICES = ["#0b0c1a", "#14122b", "#1e1b4b", "#f4f3fa", "#fff7ed", "#e6f7f1"]
+FG_CHOICES = ["#f1f0ff", "#14122b", "#f5c451", "#67e8f9", "#f9a8d4", "#86efac"]
+QUALITIES = ["360", "720", "1080"]
+DEFAULTS = {"lang": "ar", "quality": "720", "bg": "#0b0c1a", "fg": "#f1f0ff"}
 
 
-class HomeScreen(BaseScreen):
-    def __init__(self, app_ref, **kwargs):
-        super().__init__(app_ref, "home", **kwargs)
-        c = self.content
-
-        top = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(8))
-        self.btn_ar = Button(text="العربية", background_normal="")
-        self.btn_en = Button(text="English", background_normal="")
-        self.btn_ar.bind(on_press=lambda _: self.app_ref.set_language("ar"))
-        self.btn_en.bind(on_press=lambda _: self.app_ref.set_language("en"))
-        top.add_widget(self.btn_ar)
-        top.add_widget(self.btn_en)
-        c.add_widget(top)
-
-        self.title_lbl = Label(font_size="30sp", bold=True, size_hint_y=None, height=dp(50), color=TEXT)
-        self.sub_lbl = Label(font_size="14sp", size_hint_y=None, height=dp(26), color=MUTED)
-        c.add_widget(self.title_lbl)
-        c.add_widget(self.sub_lbl)
-
-        self.url_input = TextInput(
-            multiline=True,
-            size_hint_y=None,
-            height=dp(96),
-            padding=[dp(14), dp(12)],
-            background_normal="",
-            background_color=(0.14, 0.15, 0.18, 0.94),
-            foreground_color=TEXT,
-            hint_text_color=(0.56, 0.6, 0.66, 1),
-        )
-        c.add_widget(self.url_input)
-
-        # نوع التحميل
-        self.kind = "av"
-        kind_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-        self.kind_buttons = {}
-        for code, key in zip(KIND_CODES, KIND_KEYS):
-            tb = ToggleButton(group="kind", background_normal="", state="down" if code == "av" else "normal")
-            tb.code = code
-            tb.key = key
-            tb.bind(on_press=lambda _b, cd=code: self.set_kind(cd))
-            kind_row.add_widget(tb)
-            self.kind_buttons[code] = tb
-        c.add_widget(kind_row)
-
-        # الجودة
-        q_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
-        self.quality_lbl = Label(size_hint_x=0.4, color=MUTED)
-        self.quality = Spinner(text="720p", values=QUALITY_VALUES, background_normal="", background_color=SURFACE)
-        q_row.add_widget(self.quality_lbl)
-        q_row.add_widget(self.quality)
-        c.add_widget(q_row)
-
-        # الأزرار
-        btn_row = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(8))
-        self.download_btn = Button(bold=True, background_normal="", background_color=PRIMARY)
-        self.download_btn.bind(on_press=self.start_download)
-        self.cancel_btn = Button(background_normal="", background_color=DANGER, disabled=True, size_hint_x=0.35)
-        self.cancel_btn.bind(on_press=self.cancel_download)
-        btn_row.add_widget(self.download_btn)
-        btn_row.add_widget(self.cancel_btn)
-        c.add_widget(btn_row)
-
-        self.progress_bar = ProgressBar(max=100, value=0, size_hint_y=None, height=dp(22))
-        c.add_widget(self.progress_bar)
-
-        self.status_lbl = self.wrap_label(Label(text="", font_size="13sp", color=(0.88, 0.9, 0.94, 1)))
-        c.add_widget(self.status_lbl)
-
-        self.credit_lbl = Label(font_size="13sp", bold=True, size_hint_y=None, height=dp(28), color=(0.78, 0.82, 0.88, 1))
-        c.add_widget(self.credit_lbl)
-
-        self.cancel_event = None
-        self.refresh_texts()
-
-    def refresh_texts(self):
-        self.lang = self.app_ref.lang
-        self.title_lbl.text = get_text("app_name", self.lang)
-        self.sub_lbl.text = get_text("subtitle", self.lang)
-        self.url_input.hint_text = get_text("url_hint", self.lang)
-        self.download_btn.text = get_text("download_btn", self.lang)
-        self.cancel_btn.text = get_text("cancel_btn", self.lang)
-        self.quality_lbl.text = get_text("quality", self.lang)
-        self.credit_lbl.text = get_text("developer_credit", self.lang)
-        for code, tb in self.kind_buttons.items():
-            tb.text = get_text(tb.key, self.lang)
-        self.btn_ar.background_color = PRIMARY if self.lang == "ar" else SURFACE
-        self.btn_en.background_color = PRIMARY if self.lang == "en" else SURFACE
-        self.refresh_nav()
-        self.set_kind(self.kind)
-
-    def set_kind(self, code):
-        self.kind = code
-        for k, tb in self.kind_buttons.items():
-            tb.background_color = PRIMARY if k == code else SURFACE
-        self.quality.disabled = code == "a"  # الصوت لا يحتاج جودة فيديو
-
-    def _set_running(self, running):
-        self.download_btn.disabled = running
-        self.cancel_btn.disabled = not running
-
-    def _update_ui(self, progress=None, status_text=None):
-        if progress is not None:
-            self.progress_bar.value = progress
-        if status_text is not None:
-            self.status_lbl.text = status_text
-
-    def start_download(self, _):
-        urls = [u.strip() for u in self.url_input.text.splitlines() if u.strip()]
-        if not urls:
-            self.status_lbl.text = get_text("empty_url", self.lang)
-            return
-
-        quality = self.quality.text.replace("p", "")
-        kind = self.kind
-        self.cancel_event = threading.Event()
-        self._set_running(True)
-        self._update_ui(progress=0, status_text=get_text("fetching_info", self.lang))
-        engine = self.app_ref.engine
-        event = self.cancel_event
-
-        def worker():
-            def on_progress(idx, total, pct, msg):
-                suffix = f"  ({idx + 1}/{total})" if total > 1 else ""
-                Clock.schedule_once(lambda _dt: self._update_ui(progress=pct, status_text=msg + suffix))
-
-            results = engine.download_many(urls, kind, quality, on_progress, event)
-            Clock.schedule_once(lambda _dt: self._finish(results, event.is_set()))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def cancel_download(self, _):
-        if self.cancel_event is not None:
-            self.cancel_event.set()
-
-    def _finish(self, results, cancelled):
-        self._set_running(False)
-        ok = [r for r in results if r.get("ok")]
-        if cancelled and not ok:
-            msg = get_text("cancelled", self.lang)
-        elif len(ok) > 1:
-            msg = get_text("success_many", self.lang, n=len(ok))
-        elif ok:
-            msg = f"{get_text('success', self.lang)}\n{ok[0].get('message', '')}"
-        else:
-            err = results[-1].get("error") if results else get_text("empty_url", self.lang)
-            msg = err or get_text("error_prefix", self.lang, error="unknown")
-        self._update_ui(progress=100 if ok else 0, status_text=msg)
+def rgba(hex_color, alpha=1.0):
+    h = hex_color.lstrip("#")
+    return [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)] + [alpha]
 
 
-class LibraryScreen(BaseScreen):
-    def __init__(self, app_ref, **kwargs):
-        super().__init__(app_ref, "library", **kwargs)
-        c = self.content
-
-        self.title_lbl = Label(font_size="26sp", bold=True, size_hint_y=None, height=dp(44), color=TEXT)
-        self.count_lbl = Label(font_size="13sp", size_hint_y=None, height=dp(24), color=MUTED)
-        c.add_widget(self.title_lbl)
-        c.add_widget(self.count_lbl)
-
-        self.scroll = ScrollView(size_hint=(1, 1))
-        self.list = GridLayout(cols=1, size_hint_y=None, spacing=dp(8))
-        self.list.bind(minimum_height=self.list.setter("height"))
-        self.scroll.add_widget(self.list)
-        c.add_widget(self.scroll)
-        self.refresh_texts()
-
-    def on_pre_enter(self, *_args):
-        self.refresh()
-
-    def refresh_texts(self):
-        self.lang = self.app_ref.lang
-        self.title_lbl.text = get_text("library_title", self.lang)
-        self.refresh_nav()
-        self.refresh()
-
-    def refresh(self):
-        self.list.clear_widgets()
-        files = self.app_ref.engine.list_files()
-        self.count_lbl.text = get_text("library_count", self.lang, n=len(files))
-        if not files:
-            self.list.add_widget(self.wrap_label(Label(
-                text=get_text("library_empty", self.lang), size_hint_y=None, height=dp(60), color=MUTED)))
-            return
-        for f in files:
-            row = BoxLayout(size_hint_y=None, height=dp(58), spacing=dp(8))
-            name = self.wrap_label(Label(
-                text=f"{f['name']}\n{f['size'] / (1024 * 1024):.1f} MB",
-                halign="left", valign="middle", font_size="13sp", color=TEXT, size_hint_x=0.7,
-            ))
-            delete = Button(
-                text=get_text("delete", self.lang), size_hint_x=0.3,
-                background_normal="", background_color=DANGER,
-            )
-            delete.bind(on_press=lambda _b, p=f["path"]: self._delete(p))
-            row.add_widget(name)
-            row.add_widget(delete)
-            self.list.add_widget(row)
-
-    def _delete(self, path):
-        self.app_ref.engine.delete_file(path)
-        self.refresh()
+def wrap(label):
+    label.bind(width=lambda w, v: setattr(w, "text_size", (v, None)))
+    return label
 
 
-class SettingsScreen(BaseScreen):
-    def __init__(self, app_ref, **kwargs):
-        super().__init__(app_ref, "settings", **kwargs)
-        c = self.content
+class Store:
+    """يحفظ الإعدادات في ملف JSON داخل مجلد التطبيق."""
 
-        self.title_lbl = Label(font_size="24sp", bold=True, size_hint_y=None, height=dp(46), color=TEXT)
-        self.bg_section_lbl = Label(font_size="16sp", bold=True, size_hint_y=None, height=dp(32), color=MUTED)
-        self.btn_pick_image = Button(size_hint_y=None, height=dp(50), background_normal="", background_color=PRIMARY)
-        self.btn_pick_image.bind(on_press=lambda _: self._open_chooser("image"))
-        self.btn_pick_video = Button(size_hint_y=None, height=dp(50), background_normal="", background_color=PRIMARY)
-        self.btn_pick_video.bind(on_press=lambda _: self._open_chooser("video"))
-        self.btn_reset_bg = Button(size_hint_y=None, height=dp(48), background_normal="", background_color=DARK_BTN)
-        self.btn_reset_bg.bind(on_press=self._reset_background)
-        self.info_lbl = self.wrap_label(Label(text="", font_size="13sp", color=(0.75, 0.88, 0.8, 1)))
-        self.credit_lbl = Label(font_size="13sp", bold=True, size_hint_y=None, height=dp(28), color=(0.78, 0.82, 0.88, 1))
-
-        for w in (self.title_lbl, self.bg_section_lbl, self.btn_pick_image, self.btn_pick_video,
-                  self.btn_reset_bg, self.info_lbl, self.credit_lbl):
-            c.add_widget(w)
-        c.add_widget(BoxLayout())  # مسافة قبل شريط التنقل
-        self.refresh_texts()
-
-    def refresh_texts(self):
-        self.lang = self.app_ref.lang
-        self.title_lbl.text = get_text("settings_title", self.lang)
-        self.bg_section_lbl.text = get_text("bg_section", self.lang)
-        self.btn_pick_image.text = get_text("pick_image", self.lang)
-        self.btn_pick_video.text = get_text("pick_video", self.lang)
-        self.btn_reset_bg.text = get_text("reset_bg", self.lang)
-        self.credit_lbl.text = get_text("developer_credit", self.lang)
-        self.refresh_nav()
-
-    def _open_chooser(self, media_type: str):
-        start_path = "/sdcard" if os.path.exists("/sdcard") else os.path.expanduser("~")
-        if media_type == "image":
-            filters = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
-        else:
-            filters = ["*.mp4", "*.mkv", "*.webm", "*.mov", "*.gif"]
-
-        chooser = FileChooserIconView(path=start_path, filters=filters)
-        box = BoxLayout(orientation="vertical", spacing=8, padding=8)
-        box.add_widget(chooser)
-
-        btn_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
-        btn_cancel = Button(text=get_text("cancel_btn", self.lang))
-        btn_select = Button(text=get_text("bg_section", self.lang), background_normal="", background_color=PRIMARY)
-        btn_row.add_widget(btn_cancel)
-        btn_row.add_widget(btn_select)
-        box.add_widget(btn_row)
-
-        popup = Popup(title=get_text("bg_section", self.lang), content=box, size_hint=(0.92, 0.85))
-        btn_cancel.bind(on_press=popup.dismiss)
-
-        def _confirm(_):
-            if chooser.selection:
-                selected = chooser.selection[0]
-                self.app_ref.set_background(media_type, selected)
-                self.info_lbl.text = f"{get_text('bg_set', self.lang)}\n{selected}"
-                popup.dismiss()
-
-        btn_select.bind(on_press=_confirm)
-        popup.open()
-
-    def _reset_background(self, _):
-        self.app_ref.set_background("none", "")
-        self.info_lbl.text = get_text("bg_reset", self.lang)
-
-
-class RIApp(App):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.lang = "ar"
-        self.bg_type = "none"
-        self.bg_path = ""
-        self.config_file = "ri_config.json"
-
-    def _load_config(self):
-        cfg_path = os.path.join(self.user_data_dir, self.config_file)
-        if os.path.exists(cfg_path):
-            try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self.lang = data.get("lang", "ar")
-                self.bg_type = data.get("bg_type", "none")
-                self.bg_path = data.get("bg_path", "")
-            except Exception:
-                pass
-
-    def _save_config(self):
+    def __init__(self, path):
+        self.path = path
+        self.data = dict(DEFAULTS)
         try:
-            os.makedirs(self.user_data_dir, exist_ok=True)
-            cfg_path = os.path.join(self.user_data_dir, self.config_file)
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                json.dump({"lang": self.lang, "bg_type": self.bg_type, "bg_path": self.bg_path},
-                          f, ensure_ascii=False, indent=2)
+            with open(path, encoding="utf-8") as f:
+                self.data.update(json.load(f))
         except Exception:
             pass
 
-    def _pick_output_dir(self) -> str:
-        # نجرّب مجلد التنزيلات العام، وإذا لم يُسمح بالكتابة نستخدم مجلد التطبيق الخاص
-        public_dir = "/sdcard/Download/RI"
+    def save(self):
         try:
-            os.makedirs(public_dir, exist_ok=True)
-            if os.access(public_dir, os.W_OK):
-                return public_dir
-        except OSError:
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False)
+        except Exception:
             pass
-        private_dir = os.path.join(self.user_data_dir, "downloads")
-        os.makedirs(private_dir, exist_ok=True)
-        return private_dir
 
+
+class HomeScreen(Screen):
+    def __init__(self, app, **kw):
+        super().__init__(**kw)
+        self.app = app
+        self.worker_running = False
+        box = BoxLayout(orientation="vertical", padding=[dp(16), dp(12)], spacing=dp(10))
+
+        # الجودة في أعلى الشاشة
+        box.add_widget(wrap(Label(text=app.tx("quality"), size_hint_y=None, height=dp(26),
+                                  bold=True, color=app.fg())))
+        q_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        self.q_buttons = {}
+        for q in QUALITIES:
+            b = Button(text=f"{q}p", background_normal="")
+            b.bind(on_release=partial(self.set_quality, q))
+            self.q_buttons[q] = b
+            q_row.add_widget(b)
+        box.add_widget(q_row)
+        self.refresh_quality()
+
+        self.url = TextInput(
+            hint_text=app.tx("url_hint"), multiline=True, size_hint_y=None, height=dp(150),
+            foreground_color=app.fg(), cursor_color=app.fg(),
+            hint_text_color=rgba(app.store.data["fg"], 0.5),
+            background_color=rgba("#ffffff", 0.08),
+        )
+        box.add_widget(self.url)
+
+        row = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(8))
+        self.go_btn = Button(text=app.tx("download_btn"), bold=True, background_normal="",
+                             background_color=rgba(ACCENT))
+        self.go_btn.bind(on_release=self.open_options)
+        self.cancel_btn = Button(text=app.tx("cancel_btn"), size_hint_x=None, width=dp(110),
+                                 disabled=True, background_normal="",
+                                 background_color=rgba("#ef4444"))
+        self.cancel_btn.bind(on_release=self.cancel)
+        row.add_widget(self.go_btn)
+        row.add_widget(self.cancel_btn)
+        box.add_widget(row)
+
+        self.bar = ProgressBar(max=100, value=0, size_hint_y=None, height=dp(14))
+        box.add_widget(self.bar)
+        self.status = wrap(Label(text=app.tx("idle"), size_hint_y=None, height=dp(24), color=app.fg()))
+        box.add_widget(self.status)
+        self.result = wrap(Label(text="", size_hint_y=None, height=dp(56), color=app.fg()))
+        box.add_widget(self.result)
+
+        self.add_widget(box)
+
+    # ----- الجودة -----
+    def set_quality(self, q, *args):
+        self.app.store.data["quality"] = q
+        self.app.store.save()
+        self.refresh_quality()
+
+    def refresh_quality(self):
+        cur = self.app.store.data["quality"]
+        for q, b in self.q_buttons.items():
+            active = q == cur
+            b.background_color = rgba(ACCENT if active else "#ffffff", 1 if active else 0.12)
+            b.color = rgba("#ffffff") if active else self.app.fg()
+
+    # ----- خيارات التحميل تظهر بعد الضغط على تحميل -----
+    def open_options(self, *args):
+        if not self.url.text.strip():
+            self.show_result(self.app.tx("empty_url"), error=True)
+            return
+        pop = ModalView(size_hint=(0.92, None), height=dp(340), background_color=rgba("#000000", 0.6))
+        box = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        box.add_widget(wrap(Label(text=self.app.tx("fmt_title"), size_hint_y=None, height=dp(30),
+                                  bold=True, color=self.app.fg())))
+        for kind, key in (("av", "fmt_av"), ("v", "fmt_v"), ("a", "fmt_a")):
+            b = Button(text=self.app.tx(key), size_hint_y=None, height=dp(56), background_normal="",
+                       background_color=rgba(ACCENT))
+            b.bind(on_release=partial(self._choose, kind, pop))
+            box.add_widget(b)
+        close = Button(text=self.app.tx("close"), size_hint_y=None, height=dp(44),
+                       background_normal="", background_color=rgba("#ffffff", 0.15))
+        close.bind(on_release=lambda *a: pop.dismiss())
+        box.add_widget(close)
+        pop.add_widget(box)
+        pop.open()
+
+    def _choose(self, kind, pop, *args):
+        pop.dismiss()
+        self.start(kind)
+
+    # ----- التحميل -----
+    def start(self, kind):
+        if self.worker_running:
+            return
+        urls = [line.strip() for line in self.url.text.splitlines() if line.strip()]
+        if not urls:
+            self.show_result(self.app.tx("empty_url"), error=True)
+            return
+        self.app.cancel_event.clear()
+        self.worker_running = True
+        self.go_btn.disabled = True
+        self.cancel_btn.disabled = False
+        self.result.text = ""
+        quality = self.app.store.data["quality"]
+        threading.Thread(target=self._worker, args=(urls, kind, quality), daemon=True).start()
+
+    def _worker(self, urls, kind, quality):
+        try:
+            results = self.app.engine.download_many(
+                urls, kind, quality, self._on_progress, self.app.cancel_event)
+        except Exception as e:
+            results = [{"ok": False, "error": str(e)}]
+        Clock.schedule_once(partial(self._finish, results, len(urls)))
+
+    def _on_progress(self, idx, total, pct, msg):
+        Clock.schedule_once(partial(self._set_progress, idx, total, pct))
+
+    def _set_progress(self, idx, total, pct, *args):
+        self.bar.value = pct
+        self.status.text = f"{self.app.tx('downloading')} {idx + 1}/{total}"
+
+    def _finish(self, results, total, *args):
+        self.worker_running = False
+        self.go_btn.disabled = False
+        self.cancel_btn.disabled = True
+        self.status.text = self.app.tx("idle")
+        ok = [r for r in results if r.get("ok")]
+        if self.app.cancel_event.is_set():
+            self.bar.value = 0
+            self.show_result(self.app.tx("cancelled"), error=True)
+        elif results and len(ok) == len(results):
+            self.bar.value = 100
+            msg = self.app.tx("success_many", n=len(ok)) if len(ok) > 1 else self.app.tx("success")
+            self.show_result(msg)
+        else:
+            bad = next((r for r in results if not r.get("ok")), {})
+            err = self.app.fmt(bad.get("error", "?"))
+            self.show_result(f"{len(ok)}/{total}: {err}", error=True)
+
+    def cancel(self, *args):
+        self.app.cancel_event.set()
+        self.status.text = self.app.tx("cancelled")
+
+    def show_result(self, text, error=False):
+        self.result.text = text
+        self.result.color = rgba("#f87171") if error else rgba("#34d399")
+
+
+class LibraryScreen(Screen):
+    def __init__(self, app, **kw):
+        super().__init__(**kw)
+        self.app = app
+        outer = BoxLayout(orientation="vertical", padding=[dp(16), dp(12)], spacing=dp(8))
+        self.count = Label(text="", size_hint_y=None, height=dp(24), color=app.fg())
+        outer.add_widget(self.count)
+        self.scroll = ScrollView()
+        self.list = GridLayout(cols=1, spacing=dp(8), size_hint_y=None)
+        self.list.bind(minimum_height=self.list.setter("height"))
+        self.scroll.add_widget(self.list)
+        outer.add_widget(self.scroll)
+        self.add_widget(outer)
+
+    def refresh(self):
+        self.list.clear_widgets()
+        files = self.app.engine.list_files()
+        self.count.text = self.app.tx("library_count", n=len(files))
+        if not files:
+            self.list.add_widget(Label(text=self.app.tx("library_empty"), size_hint_y=None,
+                                       height=dp(60), color=self.app.fg()))
+            return
+        for f in files:
+            self.list.add_widget(self._row(f))
+
+    def _row(self, f):
+        row = BoxLayout(size_hint_y=None, height=dp(64), spacing=dp(6))
+        info = Label(text=f["name"], shorten=True, halign="left", valign="middle",
+                     color=self.app.fg(), font_size=dp(14))
+        info.bind(size=lambda w, v: setattr(w, "text_size", v))
+        play = Button(text=self.app.tx("play"), size_hint_x=None, width=dp(80),
+                      background_normal="", background_color=rgba(ACCENT))
+        play.bind(on_release=partial(self.app.play_file, f["path"]))
+        delete = Button(text=self.app.tx("delete"), size_hint_x=None, width=dp(80),
+                        background_normal="", background_color=rgba("#ef4444"))
+        delete.bind(on_release=partial(self._delete, f["path"]))
+        row.add_widget(info)
+        row.add_widget(play)
+        row.add_widget(delete)
+        return row
+
+    def _delete(self, path, *args):
+        self.app.engine.delete_file(path)
+        self.refresh()
+
+
+class SettingsScreen(Screen):
+    def __init__(self, app, **kw):
+        super().__init__(**kw)
+        self.app = app
+        box = BoxLayout(orientation="vertical", padding=[dp(16), dp(12)], spacing=dp(10))
+
+        box.add_widget(self._title("language"))
+        lang_row = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
+        for code, label in (("ar", "العربية"), ("en", "English")):
+            active = app.store.data["lang"] == code
+            b = Button(text=shape(label) if code == "ar" else label, background_normal="",
+                       background_color=rgba(ACCENT if active else "#ffffff", 1 if active else 0.12))
+            b.bind(on_release=partial(self.set_lang, code))
+            lang_row.add_widget(b)
+        box.add_widget(lang_row)
+
+        box.add_widget(self._title("bg_section"))
+        box.add_widget(self._swatches(BG_CHOICES, "bg"))
+        box.add_widget(self._title("text_color"))
+        box.add_widget(self._swatches(FG_CHOICES, "fg"))
+
+        reset = Button(text=app.tx("color_reset"), size_hint_y=None, height=dp(46),
+                       background_normal="", background_color=rgba("#ffffff", 0.12))
+        reset.bind(on_release=self.reset_colors)
+        box.add_widget(reset)
+
+        box.add_widget(Label(text=app.tx("developer_credit"), size_hint_y=None, height=dp(30),
+                             bold=True, color=rgba(ACCENT)))
+        self.add_widget(box)
+
+    def _title(self, key):
+        return wrap(Label(text=self.app.tx(key), size_hint_y=None, height=dp(26),
+                          bold=True, color=self.app.fg()))
+
+    def _swatches(self, choices, key):
+        grid = GridLayout(cols=6, size_hint_y=None, height=dp(44), spacing=dp(6))
+        for c in choices:
+            b = Button(text="", background_normal="", background_color=rgba(c))
+            b.bind(on_release=partial(self.set_color, key, c))
+            grid.add_widget(b)
+        return grid
+
+    def set_lang(self, code, *args):
+        self.app.store.data["lang"] = code
+        self.app.apply_settings("settings")
+
+    def set_color(self, key, color, *args):
+        self.app.store.data[key] = color
+        self.app.apply_settings("settings")
+
+    def reset_colors(self, *args):
+        self.app.store.data["bg"] = DEFAULTS["bg"]
+        self.app.store.data["fg"] = DEFAULTS["fg"]
+        self.app.apply_settings("settings")
+
+
+class RIApp(App):
     def build(self):
-        self.title = "RI"
-        Window.clearcolor = BG
-        self._load_config()
+        self.store = Store(os.path.join(self.user_data_dir, "settings.json"))
+        self.output_dir = self._pick_output_dir()
+        self.engine = RIDownloaderEngine(self.output_dir, self.store.data["lang"])
+        self.cancel_event = threading.Event()
+        self.request_permissions()
 
-        if request_permissions and Permission:
-            request_permissions([
-                Permission.INTERNET,
-                Permission.WRITE_EXTERNAL_STORAGE,
-                Permission.READ_EXTERNAL_STORAGE,
-                Permission.READ_MEDIA_IMAGES,
-                Permission.READ_MEDIA_VIDEO,
-            ])
+        self.root_box = BoxLayout(orientation="vertical")
+        with self.root_box.canvas.before:
+            self._bg_color = Color(*rgba(self.store.data["bg"]))
+            self._bg_rect = Rectangle()
+        self.root_box.bind(pos=self._sync_bg, size=self._sync_bg)
+        self.build_ui()
+        return self.root_box
 
-        self.engine = RIDownloaderEngine(output_dir=self._pick_output_dir(), lang=self.lang)
+    def _sync_bg(self, *args):
+        self._bg_rect.pos = self.root_box.pos
+        self._bg_rect.size = self.root_box.size
 
-        self.sm = ScreenManager(transition=SlideTransition(duration=0.2))
-        self.home = HomeScreen(self)
-        self.library = LibraryScreen(self)
-        self.settings = SettingsScreen(self)
+    def build_ui(self, pending_url="", start="home"):
+        self._bg_color.rgba = rgba(self.store.data["bg"])
+        self.root_box.clear_widgets()
+        self.sm = ScreenManager()
+        self.home = HomeScreen(self, name="home")
+        self.library = LibraryScreen(self, name="library")
+        self.settings = SettingsScreen(self, name="settings")
         for s in (self.home, self.library, self.settings):
             self.sm.add_widget(s)
-        return self.sm
+        self.home.url.text = pending_url
+        self.root_box.add_widget(self.sm)
+        self.root_box.add_widget(self.make_nav())
+        self.go(start)
 
-    def go(self, name):
+    def make_nav(self):
+        bar = BoxLayout(size_hint_y=None, height=dp(62), spacing=dp(6), padding=[dp(10), dp(6)])
+        self.nav = {}
+        for name, key in (("home", "nav_home"), ("library", "nav_library"), ("settings", "nav_settings")):
+            b = Button(text=self.tx(key), background_normal="")
+            b.bind(on_release=partial(self.go, name))
+            self.nav[name] = b
+            bar.add_widget(b)
+        return bar
+
+    def go(self, name, *args):
         self.sm.current = name
+        for key, b in self.nav.items():
+            active = key == name
+            b.background_color = rgba(ACCENT if active else self.store.data["fg"], 1 if active else 0.1)
+            b.color = rgba("#ffffff") if active else self.fg()
+        if name == "library":
+            self.library.refresh()
 
-    def _refresh_all(self):
-        for s in (self.home, self.library, self.settings):
-            s.refresh_texts()
+    def apply_settings(self, screen):
+        self.store.save()
+        self.engine.set_language(self.store.data["lang"])
+        self.build_ui(self.home.url.text, screen)
 
-    def set_language(self, new_lang: str):
-        self.lang = new_lang
-        self.engine.set_language(new_lang)
-        self._refresh_all()
-        self._save_config()
+    # ----- نصوص وألوان -----
+    def fmt(self, text):
+        return shape(text) if self.store.data["lang"] == "ar" else text
 
-    def set_background(self, bg_type: str, bg_path: str):
-        self.bg_type = bg_type
-        self.bg_path = bg_path
-        for s in (self.home, self.library, self.settings):
-            s.apply_background(bg_type, bg_path)
-        self._save_config()
+    def tx(self, key, **kw):
+        return self.fmt(get_text(key, self.store.data["lang"], **kw))
+
+    def fg(self):
+        return rgba(self.store.data["fg"])
+
+    def toast(self, msg):
+        Popup(title="RI", content=Label(text=self.fmt(msg), color=self.fg()),
+              size_hint=(0.85, 0.3)).open()
+
+    # ----- تشغيل الملف بمشغل الهاتف -----
+    def play_file(self, path, *args):
+        try:
+            from jnius import autoclass
+            # تجاوز قيد Android على مشاركة روابط file:// (مناسب للتشغيل المحلي فقط)
+            StrictMode = autoclass("android.os.StrictMode")
+            VmBuilder = autoclass("android.os.StrictMode$VmPolicy$Builder")
+            StrictMode.setVmPolicy(VmBuilder().build())
+            Intent = autoclass("android.content.Intent")
+            Uri = autoclass("android.net.Uri")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            intent = Intent(Intent.ACTION_VIEW)
+            intent.setDataAndType(Uri.parse("file://" + path), self._mime(path))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            PythonActivity.mActivity.startActivity(intent)
+        except Exception as e:
+            self.toast(str(e))
+
+    @staticmethod
+    def _mime(path):
+        p = path.lower()
+        if p.endswith((".m4a", ".mp3")):
+            return "audio/*"
+        return "video/*"
+
+    # ----- مجلد الحفظ والصلاحيات -----
+    def _pick_output_dir(self):
+        for path in ("/sdcard/Download/RI", os.path.join(self.user_data_dir, "downloads")):
+            try:
+                os.makedirs(path, exist_ok=True)
+                if os.access(path, os.W_OK):
+                    return path
+            except OSError:
+                continue
+        return os.path.join(self.user_data_dir, "downloads")
+
+    def request_permissions(self):
+        try:
+            from android.permissions import request_permissions, Permission
+            request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
