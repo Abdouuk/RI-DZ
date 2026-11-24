@@ -10,6 +10,10 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,webp,gif,mp4,mkv,webm,mov,kv,atlas,json,md,txt,ttf
 icon.filename = %(source.dir)s/icon.jpg
 
+# شاشة البداية: الأيقونة على خلفية داكنة بدل شاشة Loading الافتراضية
+presplash.filename = %(source.dir)s/icon.jpg
+android.presplash_color = #0b0c1a
+
 # إصدار التطبيق
 version = 0.3.0
 
