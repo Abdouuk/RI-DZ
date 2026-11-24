@@ -68,7 +68,7 @@ class RIDownloaderEngine:
         if result["ok"] or result.get("cancelled"):
             return result
 
-        if platform == "pinterest" and kind == "av":
+        if platform == "pinterest":
             return self._download_pinterest_fallback(url)
         return result
 
@@ -109,6 +109,12 @@ class RIDownloaderEngine:
             "quiet": True,
             "no_warnings": True,
             "progress_hooks": [hook],
+            "retries": 5,
+            "fragment_retries": 5,
+            "socket_timeout": 30,
+            "http_headers": HEADERS,
+            # يوتيوب يعمل غالباً مع عملاء أندرويد وiOS أكثر من العميل الافتراضي
+            "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
         }
 
         try:
@@ -182,19 +188,22 @@ class RIDownloaderEngine:
 
     @staticmethod
     def _extract_pinterest_media(html: str):
+        def clean(u):
+            return u.replace("&amp;", "&").replace("\\u002F", "/").replace("\\/", "/")
+
         for prop in ("og:video", "og:video:secure_url"):
             m = re.search(rf'<meta[^>]+property=["\']{prop}["\'][^>]+content=["\']([^"\']+)', html, re.I)
             if m:
-                return m.group(1).replace("&amp;", "&"), "mp4"
+                return clean(m.group(1)), "mp4"
 
-        m_json = re.search(r'"contentUrl":"(https://v1\.pinimg\.com/[^"]+?\.mp4[^"]*)"', html)
-        if m_json:
-            return m_json.group(1).replace("\\u002F", "/").replace("\\/", "/"), "mp4"
+        m = re.search(r'https://v1\.pinimg\.com/videos/[^"\'\s<>\\]+?\.mp4', html)
+        if m:
+            return clean(m.group(0)), "mp4"
 
         for prop in ("og:image", "twitter:image"):
             m = re.search(rf'<meta[^>]+property=["\']{prop}["\'][^>]+content=["\']([^"\']+)', html, re.I)
             if m:
-                return m.group(1).replace("&amp;", "&"), "jpg"
+                return clean(m.group(1)), "jpg"
 
         return None, None
 
