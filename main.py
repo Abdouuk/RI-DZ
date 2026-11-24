@@ -19,18 +19,26 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 
-from arabic import shape
+try:
+    from arabic import shape
+except Exception:
+    def shape(text):
+        return text
+
 from lang import get_text
 from ri_engine import RIDownloaderEngine
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # الاسم الافتراضي لخط Kivy هو Roboto، فنسجّل الخط العربي باسمه ليصبح خط كل النصوص
-LabelBase.register(
-    name="Roboto",
-    fn_regular=os.path.join(BASE_DIR, "fonts", "Tajawal-Regular.ttf"),
-    fn_bold=os.path.join(BASE_DIR, "fonts", "Tajawal-Bold.ttf"),
-)
+try:
+    LabelBase.register(
+        name="Roboto",
+        fn_regular=os.path.join(BASE_DIR, "fonts", "Tajawal-Regular.ttf"),
+        fn_bold=os.path.join(BASE_DIR, "fonts", "Tajawal-Bold.ttf"),
+    )
+except Exception:
+    pass
 
 ACCENT = "#6d4cff"
 BG_CHOICES = ["#0b0c1a", "#14122b", "#1e1b4b", "#f4f3fa", "#fff7ed", "#e6f7f1"]
